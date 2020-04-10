@@ -4,7 +4,7 @@ var guizlogic = require('./gameserverlogic');
  
 let _port = process.env.PORT || '80';
 console.log('listening on port ' + _port);
-const wss = new WebSocket.Server({ port: 80 });
+const wss = new WebSocket.Server({ port: 443 });
 
 function noop() {}
  
