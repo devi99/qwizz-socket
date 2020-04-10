@@ -1,10 +1,21 @@
+//import * as express from 'express';
+//import * as WebSocket from 'ws';
+const express = require('express');
 const WebSocket = require('ws');
+const http = require('http');
+
 // Import the game file.
 var guizlogic = require('./gameserverlogic');
  
-let _port = process.env.PORT || '80';
-console.log('listening on port ' + _port);
-const wss = new WebSocket.Server({ port: 443 });
+// let _port = process.env.PORT || '80';
+// console.log('listening on port ' + _port);
+// const wss = new WebSocket.Server({ port: 443 });
+const app = express();
+
+//initialize a simple http server
+const server = http.createServer(app);
+
+const wss = new WebSocket.Server({ server });
 
 function noop() {}
  
