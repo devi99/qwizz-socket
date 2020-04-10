@@ -15,5 +15,8 @@
   "bugs": {
     "url": "https://github.com/devi99/qwizz-socket/issues"
   },
-  "homepage": "https://github.com/devi99/qwizz-socket#readme"
+  "homepage": "https://github.com/devi99/qwizz-socket#readme",
+  "dependencies": {
+    "express": "^4.17.1"
+  }
 }
