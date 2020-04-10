@@ -2,18 +2,16 @@
 //import * as WebSocket from 'ws';
 const express = require('express');
 const WebSocket = require('ws');
-const http = require('http');
 
 // Import the game file.
 var guizlogic = require('./gameserverlogic');
  
-// let _port = process.env.PORT || '80';
-// console.log('listening on port ' + _port);
-// const wss = new WebSocket.Server({ port: 443 });
-const app = express();
+const PORT = process.env.PORT || 3000;
+const INDEX = '/index.html';
 
-//initialize a simple http server
-const server = http.createServer(app);
+const server = express()
+  .use((req, res) => res.sendFile(INDEX, { root: __dirname }))
+  .listen(PORT, () => console.log(`Listening on ${PORT}`));
 
 const wss = new WebSocket.Server({ server });
 
