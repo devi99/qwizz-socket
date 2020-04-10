@@ -1,8 +1,9 @@
-var io;
+var _ws;
 var gameSocket;
 //var db;
 var db = require('./db');
 var async = require('async');
+let rooms = [];
 
 /**
  * This function is called by index.js to initialize a new game instance.
@@ -10,24 +11,26 @@ var async = require('async');
  * @param sio The Socket.IO library
  * @param socket The socket object for the connected client.
  */
-exports.initGame = function(sio, socket){
-    io = sio;
-    gameSocket = socket;
-    gameSocket.emit('connected', { message: "You are connected!" });
+exports.initGame = function(ws, request){
+    _ws = ws;
+    gameSocket = request;
+
+    _ws.on('message', function incoming(message) {
+        console.log('received: %s', message);
+        let _message = JSON.parse(message);
+        _message.event == "hostCreateNewGame" && hostCreateNewGame(_message.data)
+        _message.event == "playerJoinGame" && playerJoinGame(_message.data)
+        _message.event == "hostRoomFull" && hostPrepareGame(_message.data)
+        _message.event == "hostCountdownFinished" && hostStartGame(_message.data)
+        _message.event == "hostNextRound" && hostNextRound(_message.data)
+        _message.event == "playerAnswer" && playerAnswer(_message.data)
+        _message.event == "playerRestart" && playerRestart(_message.data)
+    });
+
+    //gameSocket.emit('connected', { message: "You are connected!" });
 
     //common event
     //gameSocket.on('findLeader',findLeader);
-
-    // Host Events
-    gameSocket.on('hostCreateNewGame', hostCreateNewGame);
-    gameSocket.on('hostRoomFull', hostPrepareGame);
-    gameSocket.on('hostCountdownFinished', hostStartGame);
-    gameSocket.on('hostNextRound', hostNextRound);
-
-    // Player Events
-    gameSocket.on('playerJoinGame', playerJoinGame);
-    gameSocket.on('playerAnswer', playerAnswer);
-    gameSocket.on('playerRestart', playerRestart);
 }
 
 /* *******************************
@@ -43,11 +46,21 @@ function hostCreateNewGame() {
     // Create a unique Socket.IO Room
     var thisGameId = ( Math.random() * 100000 ) | 0;
 
-    // Return the Room ID (gameId) and the socket ID (mySocketId) to the browser client
-    this.emit('newGameCreated', {gameId: thisGameId, mySocketId: this.id});
+    let room = {
+        "gameId":thisGameId,
+        "host":_ws,
+        "users":[]
+    }
+    rooms.push(room);
 
-    // Join the Room and wait for the players
-    this.join(thisGameId.toString());
+    // Return the Room ID (gameId) and the socket ID (mySocketId) to the browser client
+    let returnJson = 
+        [
+         'newGameCreated',
+        { 'gameId' : thisGameId}
+        ]
+    ;
+    _ws.send(JSON.stringify(returnJson));    
 };
 
 /*
@@ -56,12 +69,6 @@ function hostCreateNewGame() {
  */
 async function hostPrepareGame(hostData) {
     console.log("All Players Present. Preparing game...");
-
-    var sock = this;
-    var data = {
-        mySocketId : sock.id,
-        gameId : hostData.gameId,
-    };
 
     var arrGenresForQuery = new Array();   
     hostData.selectedGenres.forEach(function(element) {
@@ -95,7 +102,14 @@ async function hostPrepareGame(hostData) {
         return console.log('error: ' + error);
       };  
 
-    io.sockets.in(data.gameId).emit('beginNewGame', data);
+      let room = rooms.filter(game => game.gameId === parseInt(hostData.gameId));
+      let returnJson = ['beginNewGame',{ 'gameId' : hostData.gameId}];
+      let host = room[0].host;
+      host.send(JSON.stringify(returnJson));
+      room[0].users.forEach(function(user){
+        user.client.send(JSON.stringify(returnJson));
+      });
+    //io.sockets.in(data.gameId).emit('beginNewGame', data);
 };
 
 /*
@@ -104,7 +118,7 @@ async function hostPrepareGame(hostData) {
  */
 function hostStartGame(gameId) {
     console.log('Game with gameId ' + gameId + ' started.');
-    sendWord(0,gameId);
+    sendQuestion(0,gameId);
 };
 
 /**
@@ -115,7 +129,7 @@ function hostNextRound(data) {
     //console.log('round' + data.round);
     if(!data.gameOver ){
         // Send a new set of words back to the host and players.
-        sendWord(data.round, data.gameId);
+        sendQuestion(data.round, data.gameId);
     } else {
 
       if(!data.done)
@@ -133,7 +147,14 @@ function hostNextRound(data) {
         data.done++;
       }
         // If the current round exceeds the number of words, send the 'gameOver' event.
-      io.sockets.in(data.gameId).emit('gameOver',data);
+        let room = rooms.filter(game => game.gameId === parseInt(data.gameId));
+        let returnJson = ['gameOver',data];
+        let host = room[0].host;
+        host.send(JSON.stringify(returnJson));
+        room[0].users.forEach(function(user){
+            user.client.send(JSON.stringify(returnJson));
+          });
+      //io.sockets.in(data.gameId).emit('gameOver',data);
     }
 };
 
@@ -179,28 +200,32 @@ function findLeader()
 function playerJoinGame(data) {
     console.log('Player ' + data.playerName + ' attempting to join game: ' + data.gameId );
 
-    // A reference to the player's Socket.IO socket object
-    var sock = this;
-
-    // Look up the room ID in the Socket.IO manager object.
-    //var room = gameSocket.manager.rooms["/" + data.gameId];
-    var room = gameSocket.adapter.rooms[data.gameId]; 
-
+    let room = rooms.filter(game => game.gameId === parseInt(data.gameId));
     // If the room exists...
     if( room != undefined ){
-        // attach the socket id to the data object.
-        data.mySocketId = sock.id;
-        
-        //Initialize score
-        data.playerScore = 0;
 
         // Join the room
-        sock.join(data.gameId);
+        let user = {
+            "username":data.playerName,
+            "client":_ws
+        }
+        room[0].users.push(user);
 
         console.log('Player ' + data.playerName + ' joined game: ' + data.gameId );
 
         // Emit an event notifying the clients that the player has joined the room.
-        io.sockets.in(data.gameId).emit('playerJoinedRoom', data);
+        //io.sockets.in(data.gameId).emit('playerJoinedRoom', data);
+
+        let returnJson = ['playerJoinedRoom',
+            { 
+            'playerName': data.playerName,
+            'playerId': data.playerId,
+            'playerScore': 0, 
+            'gameId' : data.gameId
+            }];
+        let host = room[0].host;
+        host.send(JSON.stringify(returnJson));
+        _ws.send(JSON.stringify(returnJson));
 
     } else {
         console.log('No room found while Player ' + data.playerName + ' tried to join with gameId: ' + data.gameId );
@@ -221,7 +246,19 @@ function playerAnswer(data) {
 
     // The player's answer is attached to the data object.  \
     // Emit an event with the answer so it can be checked by the 'Host'
-    io.sockets.in(data.gameId).emit('hostCheckAnswer', data);
+    let room = rooms.filter(game => game.gameId === parseInt(data.gameId));
+    // If the room exists...
+    if( room != undefined ){
+        let returnJson = ['hostCheckAnswer',
+            { 'playerId': data.playerId
+            ,'gameId' : data.gameId
+            ,'answer' : data.answer
+            ,'round' : data.round
+            }];
+        let host = room[0].host;
+        host.send(JSON.stringify(returnJson));
+    }
+    //io.sockets.in(data.gameId).emit('hostCheckAnswer', data);
 };
 
 /**
@@ -249,11 +286,19 @@ function playerRestart(data) {
  * @param wordPoolIndex
  * @param gameId The room identifier
  */
-async function sendWord(wordPoolIndex, gameId) {
+async function sendQuestion(wordPoolIndex, gameId) {
     //console.log("sendWord#" + wordPoolIndex + "#" + gameId )
-    var data = await getWordData(wordPoolIndex, gameId);
+    var data = await getQuestionData(wordPoolIndex, gameId);
     console.log('gameId:' + gameId + ':round' + data.round + ' sent question ' + data.word);
-    io.sockets.in(gameId).emit('newWordData', data);
+
+    let room = rooms.filter(game => game.gameId === parseInt(gameId));
+    let returnJson = ['newWordData',data];
+    let host = room[0].host;
+    host.send(JSON.stringify(returnJson));
+    room[0].users.forEach(function(user){
+        user.client.send(JSON.stringify(returnJson));
+      });
+    //io.sockets.in(gameId).emit('newWordData', data);
 }
 /**
  * This function does all the work of getting a new words from the pile
@@ -262,7 +307,7 @@ async function sendWord(wordPoolIndex, gameId) {
  * @param i The index of the wordPool.
  * @returns {{round: *, word: *, answer: *, list: Array}}
  */
-async function getWordData(i, id){
+async function getQuestionData(i, id){
     //console.log("getwordData");
     var wordData;
     var roundForSql = i+1;
